@@ -1,345 +1,289 @@
-﻿// Constructor for Shape objects to hold data for all drawn objects.
-// For now they will just be defined as rectangles.
-function Shape(x, y, w, h, fill) {
-    // This is a very simple and unsafe constructor. 
-    // All we're doing is checking if the values exist.
-    // "x || 0" just means "if there is a value for x, use that. Otherwise use 0."
-    this.x = x || 0;
-    this.y = y || 0;
-    this.w = w || 20;
-    this.h = h || 10;
-    this.fill = fill || '#AAAAAA';
-}
+﻿(function ($) {
+    $.fn.parallaxSlider = function (options) {
+        var opts = $.extend({}, $.fn.parallaxSlider.defaults, options);
+        return this.each(function () {
+            var $pxs_container = $(this),
+            o = $.meta ? $.extend({}, opts, $pxs_container.data()) : opts;
 
-function Line(startx, starty, endx, endy) {
-    // This is a very simple and unsafe constructor. 
-    // All we're doing is checking if the values exist.
-    // "x || 0" just means "if there is a value for x, use that. Otherwise use 0."
-    this.startx = startx || 0;
-    this.starty = starty || 0;
-    this.endx = endx || 10;
-    this.endy = endy || 10;
+            //the main slider
+            var $pxs_slider = $('.pxs_slider', $pxs_container),
+            //the elements in the slider
+            $elems = $pxs_slider.children(),
+            //total number of elements
+            total_elems = $elems.length,
+            //the navigation buttons
+            $pxs_next = $('.pxs_next', $pxs_container),
+            $pxs_prev = $('.pxs_prev', $pxs_container),
+            //the bg images
+            $pxs_bg1 = $('.pxs_bg1', $pxs_container),
+            $pxs_bg2 = $('.pxs_bg2', $pxs_container),
+            $pxs_bg3 = $('.pxs_bg3', $pxs_container),
+            //current image
+            current = 0,
+            //the thumbs container
+            $pxs_thumbnails = $('.pxs_thumbnails', $pxs_container),
+            //the thumbs
+            $thumbs = $pxs_thumbnails.children(),
+            //the interval for the autoplay mode
+            slideshow,
+            //the loading image
+            $pxs_loading = $('.pxs_loading', $pxs_container),
+            $pxs_slider_wrapper = $('.pxs_slider_wrapper', $pxs_container);
 
-}
+            //first, preload all the images
+            var loaded = 0,
+            $images = $pxs_slider_wrapper.find('img');
 
-// Draws this shape to a given context
-Shape.prototype.draw = function (ctx) {
-    ctx.fillStyle = this.fill;
-    ctx.fillRect(this.x, this.y, this.w, this.h);
-}
+            $images.each(function () {
+                var $img = $(this);
+                $('<img/>').load(function () {
+                    ++loaded;
+                    if (loaded == total_elems * 2) {
+                        $pxs_loading.hide();
+                        $pxs_slider_wrapper.show();
 
-Line.prototype.draw = function (ctx) {
-    ctx.beginPath();
-    ctx.moveTo(this.startx, this.starty);
-    ctx.lineTo(this.endx, this.endy);
-    ctx.stroke();
-}
+                        //width of an image
+                        //(assuming all images have the same sizes)
+                        var one_image_w = $pxs_slider.find('img:first').width();
 
-// Determine if a point is inside the shape's bounds
-Shape.prototype.contains = function (mx, my) {
-    // All we have to do is make sure the Mouse X,Y fall in the area between
-    // the shape's X and (X + Height) and its Y and (Y + Height)
-    return (this.x <= mx) && (this.x + this.w >= mx) &&
-          (this.y <= my) && (this.y + this.h >= my);
-}
+                        /*
+                        set the width of the slider,
+                        of each one of its elements, and of the
+                        navigation buttons
+                        */
+                        setWidths($pxs_slider,
+                        $elems,
+                        total_elems,
+                        $pxs_bg1,
+                        $pxs_bg2,
+                        $pxs_bg3,
+                        one_image_w,
+                        $pxs_next,
+                        $pxs_prev);
 
+                        /*
+                        set the widths of the thumbs
+                        and spread them evenly
+                        */
+                        $pxs_thumbnails.css({
+                            'width': one_image_w + 'px',
+                            'margin-left': -one_image_w / 2 + 'px'
+                        });
+                        var spaces = one_image_w / (total_elems + 1);
+                        $thumbs.each(function (i) {
+                            var $this = $(this);
+                            var left = spaces * (i + 1) - $this.width() / 2;
+                            $this.css('left', left + 'px');
 
-function CanvasState(canvas) {
+                            if (o.thumbRotation) {
+                                var angle = Math.floor(Math.random() * 41) - 20;
+                                $this.css({
+                                    'transform': 'rotate(' + angle + 'deg)'
+                                });
+                            }
+                            //hovering the thumbs animates them up and down
+                            $this.bind('mouseenter', function () {
+                                $(this).stop().animate({ top: '-10px' }, 100);
+                            }).bind('mouseleave', function () {
+                                $(this).stop().animate({ top: '0px' }, 100);
+                            });
+                        });
 
-    // **** First some setup! ****
+                        //make the first thumb to be selected
+                        highlight($thumbs.eq(0));
 
-    this.canvas = canvas;
-    this.width = canvas.width;
-    this.height = canvas.height;
-    this.ctx = canvas.getContext('2d');
-    // This complicates things a little but but fixes mouse co-ordinate problems
-    // when there's a border or padding. See getMouse for more detail
-    var stylePaddingLeft, stylePaddingTop, styleBorderLeft, styleBorderTop;
-    if (document.defaultView && document.defaultView.getComputedStyle) {
-        this.stylePaddingLeft = parseInt(document.defaultView.getComputedStyle(canvas, null)['paddingLeft'], 10) || 0;
-        this.stylePaddingTop = parseInt(document.defaultView.getComputedStyle(canvas, null)['paddingTop'], 10) || 0;
-        this.styleBorderLeft = parseInt(document.defaultView.getComputedStyle(canvas, null)['borderLeftWidth'], 10) || 0;
-        this.styleBorderTop = parseInt(document.defaultView.getComputedStyle(canvas, null)['borderTopWidth'], 10) || 0;
-    }
+                        //slide, when clicking the navigation buttons
+                        $pxs_next.bind('click', function () {
+                            ++current;
+                            if (current >= total_elems)
+                                if (o.circular)
+                                    current = 0;
+                                else {
+                                    --current;
+                                    return false;
+                                }
+                            highlight($thumbs.eq(current));
+                            slide(current,
+                            $pxs_slider,
+                            $pxs_bg3,
+                            $pxs_bg2,
+                            $pxs_bg1,
+                            o.speed,
+                            o.easing,
+                            o.easingBg);
+                        });
+                        $pxs_prev.bind('click', function () {
+                            --current;
+                            if (current < 0)
+                                if (o.circular)
+                                    current = total_elems - 1;
+                                else {
+                                    ++current;
+                                    return false;
+                                }
+                            highlight($thumbs.eq(current));
+                            slide(current,
+                            $pxs_slider,
+                            $pxs_bg3,
+                            $pxs_bg2,
+                            $pxs_bg1,
+                            o.speed,
+                            o.easing,
+                            o.easingBg);
+                        });
 
-    // Some pages have fixed-position bars (like the stumbleupon bar) at the top or left of the page
-    // They will mess up mouse coordinates and this fixes that
-    var html = document.body.parentNode;
-    this.htmlTop = html.offsetTop;
-    this.htmlLeft = html.offsetLeft;
-    // **** Keep track of state! ****
-
-    this.valid = false; // when set to true, the canvas will redraw everything
-    this.shapes = [];  // the collection of things to be drawn
-    this.dragging = false; // Keep track of when we are dragging the current selected object.
-    // In the future we could turn this into an array for multiple selection
-    this.selection = null;
-    this.dragoffx = 0; // See mousedown and mousemove events for explanation
-    this.dragoffy = 0;
-
-    // used for drawing line
-    this.clicks = 0;
-    this.lines = []; // the collection of lines to be drawn
-    this.startClick = []; // saves the mouse coordinates when user clicks the starting postion of the line.
-
-    // **** Then events! ****
-
-    // This is an example of a closure!
-    // Right here "this" means the CanvasState. But we are making events on the Canvas itself,
-    // and when the events are fired on the canvas the variable "this" is going to mean the canvas!
-    // Since we still want to use this particular CanvasState in the events we have to save a reference to it.
-    // This is our reference!
-    var myState = this;
-
-    // on mouse click, clear canvas
-    $('#clear').on('click', function () {
-        myState.clear();
-    });
-
-    //fixes a problem where double clicking causes text to get selected on the canvas
-    canvas.addEventListener('selectstart', function (e) { e.preventDefault(); return false; }, false);
-
-    // Up, down, and move are for dragging
-    canvas.addEventListener('click', function (e) {
-        var mouse = myState.getMouse(e);
-        var mx = mouse.x;
-        var my = mouse.y;
-        var shapes = myState.shapes;
-        myState.addShape(new Shape(mouse.x - 10, mouse.y - 10, 20, 20,
-                               'rgba(0,255,0,.6)'));
-
-        //check to see if user click is the beginning or end of the line.
-        if (myState.clicks != 1) {
-            // save begninning mouse position
-            myState.startClick[0] = mx;
-            myState.startClick[1] = my;
-            myState.clicks++;
-        }
-        else {
-            myState.addLine(new Line(myState.startClick[0], myState.startClick[1], mx, my));
-            myState.clicks = 0;
-        }
-
-        // havent returned means we have failed to select anything.
-        // If there was an object selected, we deselect it
-        if (myState.selection) {
-            myState.selection = null;
-            myState.valid = false; // Need to clear the old selection border
-        }
-    }, true);
-
-    // **** Options! ****
-
-    this.selectionColor = '#CC0000';
-    this.selectionWidth = 2;
-    this.interval = 30;
-    setInterval(function () { myState.draw(); }, myState.interval);
-}
-
-CanvasState.prototype.addShape = function (shape) {
-    this.shapes.push(shape);
-    this.valid = false;
-}
-
-CanvasState.prototype.addLine = function (line) {
-    this.lines.push(line);
-    this.valid = false;
-}
-
-CanvasState.prototype.clear = function () {
-    this.ctx.clearRect(0, 0, this.width, this.height);
-}
-
-// While draw is called as often as the INTERVAL variable demands,
-// It only ever does something if the canvas gets invalidated by our code
-CanvasState.prototype.draw = function () {
-    // if our state is invalid, redraw and validate!
-    if (!this.valid) {
-        var ctx = this.ctx;
-        var shapes = this.shapes;
-        var lines = this.lines;
-        this.clear();
-
-        // ** Add stuff you want drawn in the background all the time here **
-
-        // draw all shapes
-        var l = shapes.length;
-        for (var i = 0; i < l; i++) {
-            var shape = shapes[i];
-            // We can skip the drawing of elements that have moved off the screen:
-            if (shape.x > this.width || shape.y > this.height ||
-          shape.x + shape.w < 0 || shape.y + shape.h < 0) continue;
-            shapes[i].draw(ctx);
-        }
-
-        // draw all lines
-        for (var i = 0; i < lines.length; i++) {
-            var line = lines[i];
-            lines[i].draw(ctx);
-        }
-
-        // draw selection
-        // right now this is just a stroke along the edge of the selected Shape
-        /*
-        if (this.selection != null) {
-        ctx.strokeStyle = this.selectionColor;
-        ctx.lineWidth = this.selectionWidth;
-        var mySel = this.selection;
-        ctx.strokeRect(mySel.x, mySel.y, mySel.w, mySel.h);
-        }
-        */
-        // ** Add stuff you want drawn on top all the time here **
-
-        this.valid = true;
-    }
-}
-
-// Creates an object with x and y defined,
-// set to the mouse position relative to the state's canvas
-// If you wanna be super-correct this can be tricky,
-// we have to worry about padding and borders
-CanvasState.prototype.getMouse = function (e) {
-    var element = this.canvas, offsetX = 0, offsetY = 0, mx, my;
-
-    // Compute the total offset
-    if (element.offsetParent !== undefined) {
-        do {
-            offsetX += element.offsetLeft;
-            offsetY += element.offsetTop;
-        } while ((element = element.offsetParent));
-    }
-
-    // Add padding and border style widths to offset
-    // Also add the <html> offsets in case there's a position:fixed bar
-    offsetX += this.stylePaddingLeft + this.styleBorderLeft + this.htmlLeft;
-    offsetY += this.stylePaddingTop + this.styleBorderTop + this.htmlTop;
-
-    mx = e.pageX - offsetX;
-    my = e.pageY - offsetY;
-
-    // We return a simple javascript object (a hash) with x and y defined
-    return { x: mx, y: my };
-}
-
-// If you dont want to use <body onLoad='init()'>
-// You could uncomment this init() reference and place the script reference inside the body tag
-init();
-
-function init() {
-    var s = new CanvasState(document.getElementById('canvas1'));
-    //s.addShape(new Shape(40, 40, 50, 50)); // The default is gray
-    //s.addShape(new Shape(60, 140, 40, 60, 'lightskyblue'));
-    // Lets make some partially transparent
-    //s.addShape(new Shape(80, 150, 60, 30, 'rgba(127, 255, 212, .5)'));
-    //s.addShape(new Shape(125, 80, 30, 80, 'rgba(245, 222, 179, .7)'));
-}
+                        /*
+                        clicking a thumb will slide to the respective image
+                        */
+                        $thumbs.bind('click', function () {
+                            var $thumb = $(this);
+                            highlight($thumb);
+                            //if autoplay interrupt when user clicks
+                            if (o.auto)
+                                clearInterval(slideshow);
+                            current = $thumb.index();
+                            slide(current,
+                            $pxs_slider,
+                            $pxs_bg3,
+                            $pxs_bg2,
+                            $pxs_bg1,
+                            o.speed,
+                            o.easing,
+                            o.easingBg);
+                        });
 
 
 
+                        /*
+                        activate the autoplay mode if
+                        that option was specified
+                        */
+                        if (o.auto != 0) {
+                            o.circular = true;
+                            slideshow = setInterval(function () {
+                                $pxs_next.trigger('click');
+                            }, o.auto);
+                        }
 
+                        /*
+                        when resizing the window,
+                        we need to recalculate the widths of the
+                        slider elements, based on the new window width;
+                        we need to slide again to the current one,
+                        since the left of the slider is no longer correct
+                        */
+                        $(window).resize(function () {
+                            w_w = $(window).width();
+                            setWidths(
+                                $pxs_slider,
+                                $elems,
+                                total_elems,
+                                $pxs_bg1,
+                                $pxs_bg2,
+                                $pxs_bg3,
+                                one_image_w,
+                                $pxs_next,
+                                $pxs_prev
+                                );
+                            slide(
+                                current,
+                                $pxs_slider,
+                                $pxs_bg3,
+                                $pxs_bg2,
+                                $pxs_bg1,
+                                1,
+                                o.easing,
+                                o.easingBg
+                                );
+                        });
 
-
-
-
-
-
-
-
-/*
-
-var clicks = 0;
-var lastClick = [0, 0];
-
-var canvas = document.getElementById('myCanvas');
-
-// draws a line by getting starting and ending point based on mouse clicks.
-$(canvas).on('click', function (evt) {
-    drawLine(canvas, evt);
-});
-
-// on mouse click, clear canvas
-$('#clear').on('click', function () {
-    //drawRectangle(canvas);
-    clearCanvas(canvas);
-});
-
-// function to display mouse position
-function writeMessage(canvas, message) {
-    // clears canvas
-    var context = canvas.getContext('2d');
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.font = '18pt Calibri';
-    context.fillStyle = 'black';
-    context.fillText(message, 10, 25);
-}
-
-function clearCanvas(canvas) {
-    var context = canvas.getContext('2d');
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    // reset click counter
-    clicks = 0;
-}
-
-// function to get mouse position
-function getMousePos(canvas, evt) {
-    //getBoundingClientRect(): Returns a TextRectangle object that represents the bounding rectangle of the current element.
-    var rect = canvas.getBoundingClientRect();
-    return {
-        x: evt.clientX - rect.left,
-        y: evt.clientY - rect.top
+                    }
+                }).error(function () {
+                    alert('here')
+                }).attr('src', $img.attr('src'));
+            });
+        });
     };
-}
 
-// draw line
-function drawLine(canvas, evt) {
-    var mousPos = getMousePos(canvas, evt);
-    var context = canvas.getContext('2d');
+    //the current window width
+    var w_w = $(window).width();
 
-    if (clicks != 1) {
-        drawRectangle(canvas, mousPos, true);
-        clicks++;
+    var slide = function (current,
+    $pxs_slider,
+    $pxs_bg3,
+    $pxs_bg2,
+    $pxs_bg1,
+    speed,
+    easing,
+    easingBg) {
+        var slide_to = parseInt(-w_w * current);
+        $pxs_slider.stop().animate({
+            left: slide_to + 'px'
+        }, speed, easing);
+        $pxs_bg3.stop().animate({
+            left: slide_to / 2 + 'px'
+        }, speed, easingBg);
+        $pxs_bg2.stop().animate({
+            left: slide_to / 4 + 'px'
+        }, speed, easingBg);
+        $pxs_bg1.stop().animate({
+            left: slide_to / 8 + 'px'
+        }, speed, easingBg);
     }
-    else {
-        context.beginPath();
-        context.moveTo(lastClick[0], lastClick[1]);
-        context.lineTo(mousPos.x, mousPos.y);
-        context.stroke();
-        drawRectangle(canvas, mousPos, false);
-        clicks = 0;
+
+    var highlight = function ($elem) {
+        $elem.siblings().removeClass('selected');
+        $elem.addClass('selected');
     }
 
-    lastClick = [mousPos.x, mousPos.y]; // saves the last click
+    var setWidths = function ($pxs_slider,
+    $elems,
+    total_elems,
+    $pxs_bg1,
+    $pxs_bg2,
+    $pxs_bg3,
+    one_image_w,
+    $pxs_next,
+    $pxs_prev) {
+        /*
+        the width of the slider is the window width
+        times the total number of elements in the slider
+        */
+        var pxs_slider_w = w_w * total_elems;
+        $pxs_slider.width(pxs_slider_w + 'px');
+        //each element will have a width = windows width
+        $elems.width(w_w + 'px');
+        /*
+        we also set the width of each bg image div.
+        The value is the same calculated for the pxs_slider
+        */
+        $pxs_bg1.width(pxs_slider_w + 'px');
+        $pxs_bg2.width(pxs_slider_w + 'px');
+        $pxs_bg3.width(pxs_slider_w + 'px');
 
-    //var message = 'Mouse position: ' + mousPos.x + ',' + mousPos.y;
-    //writeMessage(canvas, message);
-}
+        /*
+        both, the right and left of the
+        navigation next and previous buttons will be:
+        windowWidth/2 - imgWidth/2 + some margin 
+        (not to touch the image borders)
+        */
+        var position_nav = w_w / 2 - one_image_w / 2 + 3;
+        $pxs_next.css('right', position_nav + 'px');
+        $pxs_prev.css('left', position_nav + 'px');
+    }
 
-// draw small rectangle indicating whether it's the beginning or end of the line
-function drawRectangle(canvas, coordinates, isStart) {
-    var context = canvas.getContext('2d');
+    $.fn.parallaxSlider.defaults = {
+        auto: 0,
+        speed: 1000,
+        easing: 'jswing',
+        easingBg: 'jswing',
+        circular: true,
+        thumbRotation: true
+    };
+    //easeInOutExpo,easeInBack
+})(jQuery);
 
-    context.beginPath();
-    context.rect(coordinates.x + 5, coordinates.y + 5, 20, 10);
-    context.fillStyle = 'yellow';
-    context.fill();
-    context.lineWidth = 1;
-    context.strokeStyle = 'black';
-    context.stroke();
-
-    addText(canvas, coordinates, isStart);
-
-}
-
-// adds 'S' for start or 'E' for end depending on when the user clicks to create a line.
-function addText(canvas, coordinates, isStart) {
-    var context = canvas.getContext('2d');
-
-    context.font = '10pt Calibri';
-    context.fillStyle = 'blue';
-    if (isStart) // if the user click is in the beginning...
-        context.fillText('S', coordinates.x + 13, coordinates.y + 14);
-    else
-        context.fillText('E', coordinates.x + 13, coordinates.y + 14);
-}
-
-*/
+$(function () {
+    var $pxs_container = $('#pxs_container');
+    $pxs_container.parallaxSlider();
+});
